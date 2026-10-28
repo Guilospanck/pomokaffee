@@ -54,9 +54,6 @@ struct SettingsView: View {
                               subtitle: "Snoozes Slack and shows “Focusing” as your status during focus.",
                               isOn: $s.slackEnabled)
                         .help(slackHelp)
-                        .onChange(of: s.slackEnabled) { _, on in
-                            if on && s.slackToken.isEmpty { NSWorkspace.shared.open(Integrations.slackAppURL) }
-                        }
                     if s.slackEnabled { slackSetup }
                 }
                 section("General") {

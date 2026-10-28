@@ -15,6 +15,10 @@ enum Log {
     }
 }
 
+enum SlackStatus {
+    case connected, rejected, unreachable
+}
+
 /// Side effects around focus and rest: macOS Focus (via Shortcuts), Slack, rest scripts.
 final class Integrations {
     private let settings = Settings.shared
@@ -159,6 +163,24 @@ final class Integrations {
             Log.write("failed: \(CommandCheck.label(command)): \(error)")
             CommandCheck.report(item, status: 127, stderr: nil, what: "Rest command")
         }
+    }
+
+    /// Asks Slack whether the token works. `completion` runs on the main queue.
+    func checkSlack(token: String, completion: @escaping (SlackStatus) -> Void) {
+        guard let url = URL(string: "https://slack.com/api/auth.test") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.dataTask(with: req) { data, _, error in
+            let status: SlackStatus
+            if error != nil || data == nil {
+                status = .unreachable
+            } else {
+                let ok = (try? JSONSerialization.jsonObject(with: data!) as? [String: Any])?["ok"] as? Bool
+                status = ok == true ? .connected : .rejected
+            }
+            DispatchQueue.main.async { completion(status) }
+        }.resume()
     }
 
     private func slack(_ method: String, _ params: [String: String], wait: Bool = false) {

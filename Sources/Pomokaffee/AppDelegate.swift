@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var steamTimer: Timer?
     private var sigterm: DispatchSourceSignal?
     private var steamPhase: CGFloat = 0
+    private var slackStatus: SlackStatus?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMainMenu()
@@ -164,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         awake.target = self
         awake.state = keepAliveOn ? .on : .off
         add(menu, "I'm in a meeting", #selector(toggleManualMeeting), checked: detector.manual)
+        addSlackItem(to: menu)
         if detector.detected {
             menu.addItem(withTitle: "Call detected (mic/camera in use)", action: nil, keyEquivalent: "").isEnabled = false
         }
@@ -193,6 +195,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings.keepAwake.toggle()
         }
     }
+    /// Greyed out until a token exists. Otherwise shows whether Slack accepts it, re-checked on every open.
+    private func addSlackItem(to menu: NSMenu) {
+        let item = menu.addItem(withTitle: "Slack", action: #selector(toggleSlack), keyEquivalent: "")
+        item.target = self
+        item.state = settings.slackEnabled ? .on : .off
+        let token = settings.slackToken
+        guard !token.isEmpty else {
+            item.title = "Slack · no token"
+            // AppKit re-enables any item that has an action, so drop it as well.
+            item.action = nil
+            item.state = .off
+            item.isEnabled = false
+            return
+        }
+        item.title = slackTitle()
+        integrations.checkSlack(token: token) { [weak self, weak item] status in
+            guard let self else { return }
+            slackStatus = status
+            item?.title = slackTitle()
+        }
+    }
+
+    private func slackTitle() -> String {
+        switch slackStatus {
+        case nil: "Slack · checking…"
+        case .connected: "Slack · connected"
+        case .rejected: "Slack · token rejected"
+        case .unreachable: "Slack · cannot reach Slack"
+        }
+    }
+
+    @objc private func toggleSlack() { settings.slackEnabled.toggle() }
     @objc private func toggleManualMeeting() { detector.manual.toggle() }
 
     @objc private func openSettings() {
