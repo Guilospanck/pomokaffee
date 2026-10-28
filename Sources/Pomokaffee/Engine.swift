@@ -19,6 +19,10 @@ final class Engine: ObservableObject {
 
     var isInMeeting: () -> Bool = { false }
     var onChange: () -> Void = {}
+    /// Fires on every focus start, including a restart while already focusing.
+    var onFocusStart: () -> Void = {}
+    /// Fires when the user pauses or resumes.
+    var onPauseChange: (Bool) -> Void = { _ in }
 
     private let settings = Settings.shared
     private var warned = false
@@ -43,6 +47,7 @@ final class Engine: ObservableObject {
         postponesUsed = 0
         paused = false
         Log.write("focus start total=\(total)s")
+        onFocusStart()
         onChange()
     }
 
@@ -57,6 +62,7 @@ final class Engine: ObservableObject {
     func togglePause() {
         guard phase != .rest else { return }
         paused.toggle()
+        onPauseChange(paused)
         onChange()
     }
 

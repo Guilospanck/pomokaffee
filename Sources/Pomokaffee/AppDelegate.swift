@@ -15,23 +15,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: NSWindow?
     private var lastPhase: Engine.Phase?
     private var steamTimer: Timer?
+    private var sigterm: DispatchSourceSignal?
     private var steamPhase: CGFloat = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMainMenu()
+        // `pkill` (just install/uninstall) sends SIGTERM; turn it into a normal quit so cleanup runs.
+        signal(SIGTERM, SIG_IGN)
+        let src = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        src.setEventHandler { NSApp.terminate(nil) }
+        src.resume()
+        sigterm = src
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
 
         settings.objectWillChange.sink { [weak self] _ in
-            DispatchQueue.main.async { self?.caffeine.set(self?.settings.keepAwake ?? false); self?.refreshIcon() }
+            DispatchQueue.main.async { self?.applyKeepAlive(); self?.refreshIcon() }
         }.store(in: &bag)
 
+        engine.onPauseChange = { [weak self] paused in
+            guard let self else { return }
+            if paused { integrations.focusOff() } else { integrations.focusOn(minutes: engine.remaining / 60 + 20) }
+        }
+        // Flipping the Shortcuts switch applies at once, if Focus should currently be on.
+        settings.$shortcutsEnabled.dropFirst().removeDuplicates().sink { [weak self] on in
+            guard let self, engine.phase != .rest, !engine.paused else { return }
+            integrations.setShortcutFocus(on: on)
+        }.store(in: &bag)
         detector.start()
         engine.isInMeeting = { [weak self] in self?.detector.isInMeeting ?? false }
         engine.onChange = { [weak self] in self?.engineChanged() }
-        caffeine.set(settings.keepAwake)
+        engine.onFocusStart = { [weak self] in
+            guard let self else { return }
+            integrations.focusOn(minutes: engine.remaining / 60 + 20)
+        }
+        applyKeepAlive()
         engine.start()
 
         let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.animateSteam() }
@@ -41,7 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         caffeine.stop()
-        if lastPhase != .rest { integrations.focusOff() }
+        // Focus is already off during a rest or a pause.
+        integrations.shutdown(focusIsOn: lastPhase != .rest && !engine.paused)
     }
 
     // MARK: Engine -> side effects
@@ -54,10 +75,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshTitle()
         guard new != old else { return }
 
-        let focusing: Set<Engine.Phase> = [.focus, .warning, .waiting]
-        if focusing.contains(new) && !(old.map(focusing.contains) ?? false) {
-            integrations.focusOn(minutes: engine.remaining / 60 + 20)
-        }
         if new == .rest {
             integrations.focusOff()
             integrations.runRestScripts()
@@ -70,6 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                          onRestNow: { [weak self] in self?.engine.startRest() })
         }
         if old == .warning && new != .warning { warning.hide() }
+    }
+
+    private var keepAliveOn: Bool { settings.keepAwake && settings.activeKeepAlive != nil }
+
+    private func applyKeepAlive() {
+        caffeine.set(settings.keepAwake ? settings.activeKeepAlive : nil)
     }
 
     // MARK: Status item
@@ -97,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }()
         steamPhase += speed
         statusItem?.button?.image = StatusIcon.image(phase: steamPhase, amplitude: amp,
-                                                     steamAlpha: settings.keepAwake ? 1 : 0.4)
+                                                     steamAlpha: keepAliveOn ? 1 : 0.4)
     }
 
     private func animateSteam() {
@@ -118,24 +141,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: status, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
         if engine.phase != .rest {
-            add(menu, engine.paused ? "Resume" : "Pause", #selector(togglePause))
-            add(menu, "Rest now", #selector(restNow))
-            add(menu, "Restart focus", #selector(restartFocus))
+            add(menu, engine.paused ? "Resume" : "Pause", #selector(togglePause), symbol: engine.paused ? "play.fill" : "pause.fill")
+            add(menu, "Rest now", #selector(restNow), symbol: "cup.and.saucer.fill")
+            add(menu, "Restart focus", #selector(restartFocus), symbol: "arrow.counterclockwise")
             menu.addItem(.separator())
         }
-        add(menu, "Keep awake", #selector(toggleKeepAwake), checked: settings.keepAwake)
+        let awake = menu.addItem(withTitle: "Keep awake", action: #selector(toggleKeepAwake), keyEquivalent: "")
+        awake.target = self
+        awake.state = keepAliveOn ? .on : .off
+        awake.isEnabled = settings.activeKeepAlive != nil
         add(menu, "I'm in a meeting", #selector(toggleManualMeeting), checked: detector.manual)
         if detector.detected {
             menu.addItem(withTitle: "Call detected (mic/camera in use)", action: nil, keyEquivalent: "").isEnabled = false
         }
         menu.addItem(.separator())
-        add(menu, "Settings…", #selector(openSettings), key: ",")
+        add(menu, "Settings…", #selector(openSettings), key: ",", symbol: "gearshape")
         add(menu, "Quit Pomokaffee", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp)
     }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector, key: String = "",
-                     checked: Bool = false, target: AnyObject? = nil) {
+                     checked: Bool = false, target: AnyObject? = nil, symbol: String? = nil) {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+        if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
         item.target = target ?? self
         item.state = checked ? .on : .off
     }
@@ -149,14 +176,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSettings() {
         if settingsWindow == nil {
             let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(s: settings)))
-            w.title = "Pomokaffee Settings"
-            w.styleMask = [.titled, .closable]
+            w.title = "Pomokaffee"
+            w.styleMask = [.titled, .closable, .fullSizeContentView]
+            w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.center()
             settingsWindow = w
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        // AppKit hands focus to the first text field; drop it so no field starts selected.
+        // SwiftUI assigns it a moment after the window shows, so repeat once or twice.
+        for delay in [0.0, 0.1, 0.3] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.settingsWindow?.makeFirstResponder(nil) }
+        }
     }
 
     /// Accessory apps have no menu bar, so Cmd-C/V need an Edit menu to work in text fields.

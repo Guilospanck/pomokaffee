@@ -4,9 +4,9 @@ Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 
 - **Focus**: optional macOS Focus (via Shortcuts) and Slack pause + status.
 - **Last minute**: floating card, postpone +5 min then +10 min (max 2). Skipped during calls.
-- **Rest**: full-screen blocker with an apple being eaten. Skip only by typing a long phrase (paste is rejected). Runs `cleanup-caches --deep` and your own commands.
+- **Rest**: full-screen blocker with an apple being eaten. Skip only by typing a long phrase (paste is rejected). Runs the rest commands you add in Settings.
 - **Calls**: mic or camera running anywhere (Slack huddle, Meet, Teams, Zoom...) or Zoom's `CptHost` counts as a meeting. Rest waits until it ends, then gives a 60 s warning. Menu has a manual "I'm in a meeting" override.
-- **Keep awake**: `caffeinate -disu` toggle.
+- **Keep awake**: menu toggle. Runs the one keep-alive command selected in Settings (default `caffeinate -disu`); disabled if none is selected.
 
 ## Run
 
@@ -19,7 +19,7 @@ Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 
 ## Setup notes
 
-- macOS Focus has no public API. Create two Shortcuts ("Pomokaffee Focus On" / "Pomokaffee Focus Off", each with a *Set Focus* action) and enable them in Settings.
+- macOS Focus has no public API. Turning on "Run macOS Shortcuts" in Settings opens the bundled "Pomokaffee Focus On/Off" Shortcuts (also in `shortcuts/`); click *Add Shortcut* in each dialog. macOS does not allow a silent import.
 - Slack: user token (`xoxp-`) with `dnd:write` and `users.profile:write`. Stored in UserDefaults (plain).
-- Rest commands run through `zsh -ilc`, so PATH/aliases from `.zshrc` apply. Log: `~/Library/Logs/Pomokaffee.log`.
+- Rest and keep-alive commands run through `zsh -ilc`, so PATH/aliases from `.zshrc` apply. Log: `~/Library/Logs/Pomokaffee.log`.
 - Rest blocks the Dock, menu bar and app switching. Force Quit (Cmd-Opt-Esc) stays available as an escape hatch.

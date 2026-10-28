@@ -38,13 +38,23 @@ install: bundle
 	open "{{install_dir}}/{{app}}.app"
 	echo "Installed {{install_dir}}/{{app}}.app"
 
+# Tells you which Focus Shortcuts are still in the Shortcuts app. AppleScript `delete shortcut` does nothing (checked), so they must be removed by hand.
+remove-shortcuts:
+	#!/usr/bin/env bash
+	for n in "Pomokaffee Focus On" "Pomokaffee Focus Off"; do
+		shortcuts list | grep -qx "$n" && echo "Still installed: Shortcut '$n'. Delete it in the Shortcuts app (select it, press Cmd-Delete)."
+	done
+	true
+
 # Quits the app and removes it; keeps settings and log (see purge)
 uninstall:
 	#!/usr/bin/env bash
 	set -euo pipefail
 	pkill -x "{{app}}" 2>/dev/null || true
+	"{{install_dir}}/{{app}}.app/Contents/MacOS/{{app}}" --unregister-login 2>/dev/null || true
 	rm -rf "{{install_dir}}/{{app}}.app"
-	echo "Removed {{install_dir}}/{{app}}.app. If launch-at-login was on, remove it in System Settings > General > Login Items."
+	just --justfile "{{justfile_directory()}}/.justfile" remove-shortcuts
+	echo "Removed {{install_dir}}/{{app}}.app (launch-at-login entry dropped)."
 
 # Uninstall plus settings (including the Slack token) and the log
 purge: uninstall
