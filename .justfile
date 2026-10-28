@@ -138,3 +138,39 @@ setup-tap-key:
 	gh secret set HOMEBREW_TAP_DEPLOY_KEY -R Guilospanck/pomokaffee < "$tmp/key"
 	for id in $old_ids; do gh repo deploy-key delete "$id" -R "$tap" && echo "Removed earlier deploy key $id."; done
 	echo "Deploy key added to homebrew-tap (write) and stored as HOMEBREW_TAP_DEPLOY_KEY."
+
+# Does locally what the Release workflow does (build, zip, GitHub Release, tap cask). Usage: just release-local 1.1 ["notes"]
+release-local version $notes="":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	ver="{{version}}"
+	root="{{justfile_directory()}}"
+	cd "$root"
+	[[ "$ver" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "version must look like 1.1 or 1.1.0 (got '$ver')" >&2; exit 1; }
+	[[ -z "$(git status --porcelain)" ]] || { echo "working tree not clean" >&2; exit 1; }
+	[[ "$(git rev-parse HEAD)" == "$(git rev-parse '@{u}')" ]] || { echo "push HEAD first: the release tags the pushed commit" >&2; exit 1; }
+	! git rev-parse "v$ver" >/dev/null 2>&1 || { echo "tag v$ver already exists" >&2; exit 1; }
+	just --justfile "$root/.justfile" lint
+	VERSION="$ver" "$root/scripts/bundle.sh"
+	work="$(mktemp -d)"
+	trap 'rm -rf -- "$work"' EXIT
+	zip="$work/Pomokaffee-$ver.zip"
+	ditto -c -k --keepParent build/Pomokaffee.app "$zip"
+	sha="$(shasum -a 256 "$zip" | awk '{print $1}')"
+	# Cask first into the tap clone, so a lint failure stops before anything is published.
+	git clone -q git@github.com:Guilospanck/homebrew-tap.git "$work/tap"
+	mkdir -p "$work/tap/Casks"
+	"$root/scripts/render-cask.sh" "$ver" "$sha" > "$work/tap/Casks/pomokaffee.rb"
+	notes_args=()
+	[[ -n "${notes//[[:space:]]/}" ]] && notes_args=(--notes "$notes")
+	# gh creates tag v$ver on the pushed HEAD; if Actions is back, its workflow may also fire on that tag.
+	gh release create "v$ver" "$zip" --title "v$ver" --target "$(git rev-parse HEAD)" ${notes_args[@]+"${notes_args[@]}"} --generate-notes
+	cd "$work/tap"
+	git add Casks/pomokaffee.rb
+	if git diff --cached --quiet; then
+		echo "Cask already up to date."
+	else
+		git commit -q -m "pomokaffee $ver"
+		git push -q origin HEAD
+	fi
+	echo "Released v$ver and updated the tap (sha256 $sha)."
