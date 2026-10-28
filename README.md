@@ -20,6 +20,6 @@ Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 ## Setup notes
 
 - macOS Focus has no public API. Turning on "Run macOS Shortcuts" in Settings opens the bundled "Pomokaffee Focus On/Off" Shortcuts (also in `shortcuts/`); click *Add Shortcut* in each dialog. macOS does not allow a silent import.
-- Slack: user token (`xoxp-`) with `dnd:write` and `users.profile:write`. Stored in UserDefaults (plain).
+- Slack: user token (`xoxp-`) with `dnd:write` and `users.profile:write`. Stored in the macOS Keychain.
 - Rest and keep-alive commands run through `zsh -ilc`, so PATH/aliases from `.zshrc` apply. Log: `~/Library/Logs/Pomokaffee.log`.
 - Rest blocks the Dock, menu bar and app switching. Force Quit (Cmd-Opt-Esc) stays available as an escape hatch.

@@ -28,7 +28,8 @@ final class Settings: ObservableObject {
     @Published var restItems: [CommandItem] { didSet { Self.save(restItems, "restItems") } }
     @Published var shortcutsEnabled: Bool { didSet { d.set(shortcutsEnabled, forKey: "shortcutsEnabled") } }
     @Published var slackEnabled: Bool { didSet { d.set(slackEnabled, forKey: "slackEnabled") } }
-    @Published var slackToken: String { didSet { d.set(slackToken, forKey: "slackToken") } }
+    /// Kept in the Keychain, never in UserDefaults.
+    @Published var slackToken: String { didSet { Keychain.set("slackToken", slackToken) } }
 
     /// The keep-alive command that would run, if any is enabled and non-empty.
     var activeKeepAlive: CommandItem? {
@@ -46,7 +47,6 @@ final class Settings: ObservableObject {
     private init() {
         func int(_ k: String, _ def: Int) -> Int { UserDefaults.standard.object(forKey: k) == nil ? def : UserDefaults.standard.integer(forKey: k) }
         func bool(_ k: String, _ def: Bool) -> Bool { UserDefaults.standard.object(forKey: k) == nil ? def : UserDefaults.standard.bool(forKey: k) }
-        func str(_ k: String, _ def: String) -> String { UserDefaults.standard.string(forKey: k) ?? def }
         focusMinutes = int("focusMinutes", 25)
         restMinutes = int("restMinutes", 5)
         keepAwake = bool("keepAwake", false)
@@ -54,6 +54,11 @@ final class Settings: ObservableObject {
         restItems = Self.load("restItems") ?? []
         shortcutsEnabled = bool("shortcutsEnabled", false)
         slackEnabled = bool("slackEnabled", false)
-        slackToken = str("slackToken", "")
+        // Move a token saved by an older version out of UserDefaults.
+        if let old = UserDefaults.standard.string(forKey: "slackToken") {
+            if !old.isEmpty { Keychain.set("slackToken", old) }
+            UserDefaults.standard.removeObject(forKey: "slackToken")
+        }
+        slackToken = Keychain.get("slackToken") ?? ""
     }
 }

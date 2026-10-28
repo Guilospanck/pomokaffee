@@ -61,6 +61,7 @@ purge: uninstall
 	#!/usr/bin/env bash
 	set -euo pipefail
 	defaults delete "{{bundle_id}}" 2>/dev/null || true
+	security delete-generic-password -s "{{bundle_id}}" -a slackToken >/dev/null 2>&1 || true
 	rm -f "$HOME/Library/Logs/{{app}}.log"
 	echo "Removed settings and log"
 
