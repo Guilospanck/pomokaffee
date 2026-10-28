@@ -25,9 +25,9 @@ final class Caffeine {
             guard proc.terminationReason == .exit else { return }
             CommandCheck.report(item, status: proc.terminationStatus, stderr: tail.lastLine, what: "Keep-alive command")
         }
-        do { try p.run(); process = p; running = command; Log.write("keep alive: \(command)") }
+        do { try p.run(); process = p; running = command; Log.write("keep alive: \(CommandCheck.label(command))") }
         catch {
-            Log.write("keep alive failed: \(command): \(error)")
+            Log.write("keep alive failed: \(CommandCheck.label(command)): \(error)")
             CommandCheck.report(item, status: 127, stderr: nil, what: "Keep-alive command")
         }
     }

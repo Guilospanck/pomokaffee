@@ -7,11 +7,20 @@ private let shortcutsHelp = "Runs the macOS Shortcuts “\(Integrations.shortcut
 private let slackHelp = "Needs a Slack user token (xoxp-…) with the scopes dnd:write and users.profile:write."
 
 struct SettingsView: View {
-    @ObservedObject var s: Settings
+    let settings: Settings
+    @State private var s: SettingsDraft
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var shortcutHint = ""
 
+    init(settings: Settings) {
+        self.settings = settings
+        _s = State(initialValue: settings.draft)
+    }
+
+    private var dirty: Bool { s != settings.draft }
+
     var body: some View {
+        VStack(spacing: 0) {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 section("Pomodoro", note: "Applies from the next cycle.") {
@@ -20,7 +29,7 @@ struct SettingsView: View {
                     DurationRow(title: "Rest", minutes: $s.restMinutes, range: 1...60)
                 }
                 section("Keep awake", note: "Runs while Keep awake is on in the menu. One at a time.") {
-                    CommandList(items: $s.keepAliveItems, exclusive: true) { on in s.keepAwake = on }
+                    CommandList(items: $s.keepAliveItems, exclusive: true)
                 }
                 section("On rest", note: "Every enabled command runs when a rest starts.") {
                     CommandList(items: $s.restItems, exclusive: false)
@@ -30,12 +39,8 @@ struct SettingsView: View {
                               subtitle: "Switches Focus / Do Not Disturb with the Shortcuts “\(Integrations.shortcutNames[0])” and “\(Integrations.shortcutNames[1])”. macOS asks you to add them: click Add Shortcut for each.",
                               isOn: $s.shortcutsEnabled)
                         .help(shortcutsHelp)
-                        .onChange(of: s.shortcutsEnabled) { _, on in
-                            guard on else { shortcutHint = ""; return }
-                            showHint(Integrations.installMissingShortcuts())
-                        }
                         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                            if s.shortcutsEnabled { showHint(Integrations.missingShortcuts()) }
+                            if settings.shortcutsEnabled { showHint(Integrations.missingShortcuts()) }
                         }
                     if !shortcutHint.isEmpty {
                         Label(shortcutHint, systemImage: "exclamationmark.triangle.fill")
@@ -62,16 +67,47 @@ struct SettingsView: View {
             }
             .padding(24)
         }
+        applyBar
+        }
         .background(Color(nsColor: .windowBackgroundColor))
+        // Closing the window drops unapplied edits.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            s = settings.draft; shortcutHint = ""
+        }
         .tint(accent)
-        .frame(width: 500, height: 680)
+        .frame(width: 500, height: 720)
+    }
+
+    /// Nothing runs, saves or switches until Apply: commands are not executed while you type them.
+    private var applyBar: some View {
+        HStack(spacing: 12) {
+            Text(dirty ? "Unapplied changes" : "All changes applied")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Revert") { s = settings.draft; shortcutHint = "" }.disabled(!dirty)
+            Button("Apply") { apply() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!dirty || s.tokenProblem != nil)
+        }
+        .padding(.horizontal, 24).padding(.vertical, 12)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func apply() {
+        let enablingShortcuts = s.shortcutsEnabled && !settings.shortcutsEnabled
+        settings.apply(s)
+        s = settings.draft
+        if enablingShortcuts { showHint(Integrations.installMissingShortcuts()) }
+        if !s.shortcutsEnabled { shortcutHint = "" }
     }
 
     private var slackSetup: some View {
         VStack(alignment: .leading, spacing: 8) {
             SecureField("Slack user token (xoxp-…)", text: $s.slackToken).fieldStyle()
-            if !s.slackToken.isEmpty && !s.slackToken.hasPrefix("xoxp-") {
-                Label("User tokens start with xoxp-", systemImage: "exclamationmark.triangle.fill")
+            if let problem = s.tokenProblem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red)
             }
             Text("1. Open Slack and create the app: it is pre-filled with the right scopes.\n2. Choose Install to Workspace.\n3. Copy the “User OAuth Token” and paste it above.")
@@ -157,8 +193,6 @@ private struct DurationRow: View {
 private struct CommandList: View {
     @Binding var items: [CommandItem]
     let exclusive: Bool
-    /// Called when the user flips a switch.
-    var onToggle: (Bool) -> Void = { _ in }
 
     var body: some View {
         // Iterate values and bind by id: `ForEach($items)` reads a stale index after a removal and crashes.
@@ -185,7 +219,6 @@ private struct CommandList: View {
         Binding(get: { item.wrappedValue.enabled }, set: { on in
             if on && exclusive { for i in items.indices { items[i].enabled = false } }
             item.wrappedValue.enabled = on
-            onToggle(on)
         })
     }
 }
@@ -196,12 +229,14 @@ private struct CommandRow: View {
     @Binding var enabled: Bool
     let remove: () -> Void
     @ObservedObject private var status = CommandStatus.shared
-    @State private var missing: String?
+    @State private var checked: (command: String, message: String)?
+    @FocusState private var focused: Bool
 
     /// A failure from the last real run wins over the static lookup, while the command text is unchanged.
     private var problem: String? {
         if let f = status.failures[item.id], f.command == item.command { return f.message }
-        return missing
+        if let c = checked, c.command == item.command { return c.message }
+        return nil
     }
 
     var body: some View {
@@ -213,6 +248,7 @@ private struct CommandRow: View {
                 } else {
                     TextField("Command, e.g. say \"Time to rest\"", text: $item.command)
                         .font(.system(.body, design: .monospaced))
+                        .focused($focused)
                         .fieldStyle()
                     TextField("What it does (optional)", text: $item.detail)
                         .font(.callout)
@@ -231,12 +267,14 @@ private struct CommandRow: View {
                 }
             }
         }
-        .task(id: item.command) {
-            guard !builtIn else { return }
-            let command = item.command
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if Task.isCancelled { return }
-            missing = await CommandCheck.missing(command)
-        }
+        // Looking a command up starts the login shell, so do it once per edit (on leaving the field), not per keystroke.
+        .task { await check() }
+        .onChange(of: focused) { _, now in if !now { Task { await check() } } }
+    }
+
+    private func check() async {
+        let command = item.command
+        guard !builtIn, !command.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        if let message = await CommandCheck.missing(command) { checked = (command, message) } else { checked = nil }
     }
 }

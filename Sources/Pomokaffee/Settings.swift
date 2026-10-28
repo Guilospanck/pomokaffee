@@ -14,6 +14,22 @@ struct CommandItem: Codable, Identifiable, Equatable {
                                         detail: "Caffeinate: keep the Mac awake", enabled: false, builtIn: true)
 }
 
+/// What the Settings window edits. Nothing reaches `Settings` (and so nothing runs) until Apply.
+struct SettingsDraft: Equatable {
+    var focusMinutes: Int
+    var restMinutes: Int
+    var keepAliveItems: [CommandItem]
+    var restItems: [CommandItem]
+    var shortcutsEnabled: Bool
+    var slackEnabled: Bool
+    var slackToken: String
+
+    /// A Slack token that cannot work blocks Apply.
+    var tokenProblem: String? {
+        slackEnabled && !slackToken.isEmpty && !slackToken.hasPrefix("xoxp-") ? "User tokens start with xoxp-" : nil
+    }
+}
+
 /// User preferences, persisted in UserDefaults.
 final class Settings: ObservableObject {
     static let shared = Settings()
@@ -36,6 +52,26 @@ final class Settings: ObservableObject {
         keepAliveItems.first { $0.enabled && !$0.command.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
+    var draft: SettingsDraft {
+        SettingsDraft(focusMinutes: focusMinutes, restMinutes: restMinutes, keepAliveItems: keepAliveItems,
+                      restItems: restItems, shortcutsEnabled: shortcutsEnabled, slackEnabled: slackEnabled,
+                      slackToken: slackToken)
+    }
+
+    /// Commits a draft. Switching a keep-alive command on or off in it also switches Keep awake.
+    func apply(_ d: SettingsDraft) {
+        let hadKeepAlive = activeKeepAlive != nil
+        focusMinutes = d.focusMinutes
+        restMinutes = d.restMinutes
+        keepAliveItems = d.keepAliveItems
+        restItems = d.restItems
+        shortcutsEnabled = d.shortcutsEnabled
+        slackEnabled = d.slackEnabled
+        if slackToken != d.slackToken { slackToken = d.slackToken }
+        let has = activeKeepAlive != nil
+        if has != hadKeepAlive { keepAwake = has }
+    }
+
     private static func save(_ items: [CommandItem], _ key: String) {
         if let data = try? JSONEncoder().encode(items) { UserDefaults.standard.set(data, forKey: key) }
     }
@@ -56,9 +92,9 @@ final class Settings: ObservableObject {
         slackEnabled = bool("slackEnabled", false)
         // Move a token saved by an older version out of UserDefaults.
         if let old = UserDefaults.standard.string(forKey: "slackToken") {
-            if !old.isEmpty { Keychain.set("slackToken", old) }
-            UserDefaults.standard.removeObject(forKey: "slackToken")
+            // Drop the plain copy only once the Keychain holds it.
+            if old.isEmpty || Keychain.set("slackToken", old) { UserDefaults.standard.removeObject(forKey: "slackToken") }
         }
-        slackToken = Keychain.get("slackToken") ?? ""
+        slackToken = Keychain.get("slackToken") ?? UserDefaults.standard.string(forKey: "slackToken") ?? ""
     }
 }

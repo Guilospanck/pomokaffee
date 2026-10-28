@@ -138,16 +138,16 @@ final class Integrations {
         let tail = StderrTail()
         p.standardOutput = FileHandle.nullDevice
         p.standardError = tail.pipe
-        Log.write("run: \(command)")
+        Log.write("run: \(CommandCheck.label(command))")
         do {
             try p.run()
             lock.lock(); running.append(p); lock.unlock()
             p.waitUntilExit()
             lock.lock(); running.removeAll { $0 === p }; let quitting = stopping; lock.unlock()
-            Log.write("done (\(p.terminationStatus)): \(command)")
+            Log.write("done (\(p.terminationStatus)): \(CommandCheck.label(command))")
             if !quitting { CommandCheck.report(item, status: p.terminationStatus, stderr: tail.lastLine, what: "Rest command") }
         } catch {
-            Log.write("failed: \(command): \(error)")
+            Log.write("failed: \(CommandCheck.label(command)): \(error)")
             CommandCheck.report(item, status: 127, stderr: nil, what: "Rest command")
         }
     }
@@ -167,8 +167,8 @@ final class Integrations {
             defer { done.signal() }
             if let error { Log.write("slack \(method): \(error)"); return }
             if let data, let s = String(data: data, encoding: .utf8), s.contains("\"ok\":false") {
-                Log.write("slack \(method): \(s)")
                 let code = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String ?? "unknown_error"
+                Log.write("slack \(method): \(code)")
                 Notifier.post("Slack call failed", "\(code). Check the token in Settings.")
             }
         }.resume()

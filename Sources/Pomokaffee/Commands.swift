@@ -54,6 +54,9 @@ enum CommandCheck {
         return nil
     }
 
+    /// What to show in logs and notifications: the program only, since arguments may hold secrets.
+    static func label(_ command: String) -> String { program(of: command) ?? "command" }
+
     /// Message if the command's program does not exist in the login shell; nil if it does or cannot be judged.
     static func missing(_ command: String) async -> String? {
         guard let word = program(of: command) else { return nil }
@@ -87,9 +90,9 @@ enum CommandCheck {
             return
         }
         let message = failure(command: item.command, status: status, stderr: stderr)
-        Log.write("\(what) failed (\(status)): \(item.command): \(message)")
+        Log.write("\(what) failed (\(status)): \(label(item.command)): \(message)")
         CommandStatus.shared.set(item.id, command: item.command, message: message)
-        Notifier.post("\(what) failed", "\(item.command)\n\(message)")
+        Notifier.post("\(what) failed", "\(label(item.command)): \(message)")
     }
 }
 

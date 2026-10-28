@@ -18,14 +18,22 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Stores `value`; an empty value deletes the item.
-    static func set(_ key: String, _ value: String) {
-        SecItemDelete(query(key) as CFDictionary)
-        guard !value.isEmpty else { return }
-        var q = query(key)
-        q[kSecValueData as String] = Data(value.utf8)
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
+    /// Stores `value`, replacing the old one only after the new one is saved; an empty value deletes the item.
+    /// Returns false if the Keychain refused.
+    @discardableResult
+    static func set(_ key: String, _ value: String) -> Bool {
+        guard !value.isEmpty else {
+            let s = SecItemDelete(query(key) as CFDictionary)
+            return s == errSecSuccess || s == errSecItemNotFound
+        }
+        let data = Data(value.utf8)
+        var status = SecItemUpdate(query(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var q = query(key)
+            q[kSecValueData as String] = data
+            status = SecItemAdd(q as CFDictionary, nil)
+        }
         if status != errSecSuccess { Log.write("keychain write failed for \(key): \(status)") }
+        return status == errSecSuccess
     }
 }

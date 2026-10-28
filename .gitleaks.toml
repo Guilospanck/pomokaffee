@@ -11,9 +11,13 @@ description = "Literal token/password assignment; use untracked local config"
 regex = '''(?i)(?:[a-z0-9_]*(?:token|password|passwd|api[_-]?key|client[_-]?secret|access[_-]?key)[a-z0-9_]*)["']?\s*[:=]\s*["']?([a-z0-9+/][a-z0-9_./+@=!:-]{3,})'''
 secretGroup = 1
 
-# Swift identifiers like `slackToken: String` are code, not credentials.
+# Swift identifiers like `slackToken: String` are code, not credentials: skip Swift
+# matches without a quote before the value, so a hardcoded `"abc123"` is still caught.
 [[rules.allowlists]]
+condition = "AND"
 paths = ['''(^|/)Sources/.*\.swift$''']
+regexTarget = "match"
+regexes = ['''^[^"']*$''']
 
 [[rules.allowlists]]
 regexTarget = "secret"
