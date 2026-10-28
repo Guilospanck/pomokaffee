@@ -8,7 +8,8 @@ final class WarningPanel {
     func show(engine: Engine, onPostpone: @escaping () -> Void, onRestNow: @escaping () -> Void) {
         hide()
         let host = NSHostingView(rootView: WarningView(engine: engine, onPostpone: onPostpone, onRestNow: onRestNow))
-        let size = NSSize(width: 300, height: 150)
+        host.layoutSubtreeIfNeeded()
+        let size = NSSize(width: 300, height: host.fittingSize.height)
         let p = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.contentView = host
@@ -62,7 +63,7 @@ private struct WarningView: View {
             }
         }
         .padding(16)
-        .frame(width: 300, height: 150, alignment: .topLeading)
+        .frame(width: 300, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
