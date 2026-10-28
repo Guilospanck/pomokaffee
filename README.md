@@ -8,6 +8,12 @@ Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 - **Calls**: mic or camera running anywhere (Slack huddle, Meet, Teams, Zoom...) or Zoom's `CptHost` counts as a meeting. Rest waits until it ends, then gives a 60 s warning. Menu has a manual "I'm in a meeting" override.
 - **Keep awake**: menu toggle. Runs the one keep-alive command selected in Settings (default `caffeinate -disu`); disabled if none is selected.
 
+## Install
+
+    brew install --cask guilospanck/tap/pomokaffee
+
+The cask installs the prebuilt app into `/Applications` and clears the download quarantine (the app is ad-hoc signed, not notarized). Upgrade with `brew upgrade --cask pomokaffee`, remove with `brew uninstall --cask pomokaffee` (turn off Launch at Login first).
+
 ## Run
 
     just run         # build and launch from build/
@@ -23,3 +29,7 @@ Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 - Slack: user token (`xoxp-`) with `dnd:write` and `users.profile:write`. Stored in the macOS Keychain.
 - Rest and keep-alive commands run through `zsh -ilc`, so PATH/aliases from `.zshrc` apply. Log: `~/Library/Logs/Pomokaffee.log`.
 - Rest blocks the Dock, menu bar and app switching. Force Quit (Cmd-Opt-Esc) stays available as an escape hatch.
+
+## Releasing
+
+One-time: `just setup-tap-key` (needs `gh`). Then `just tag 1.1 ["notes"]` lints the cask, pushes tag `v1.1`, and the Release workflow builds the zip, creates the GitHub Release and updates `Casks/pomokaffee.rb` in `Guilospanck/homebrew-tap`.
