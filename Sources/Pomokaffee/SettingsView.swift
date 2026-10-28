@@ -7,13 +7,15 @@ private let shortcutsHelp = "Runs the macOS Shortcuts “\(Integrations.shortcut
 private let slackHelp = "Needs a Slack user token (xoxp-…) with the scopes dnd:write and users.profile:write."
 
 struct SettingsView: View {
-    let settings: Settings
+    /// Observed so `dirty` is re-evaluated when Apply commits: `s` ends up equal to the saved draft, so
+    /// assigning it back changes no state and would not redraw the Apply bar.
+    @ObservedObject var settings: Settings
     @State private var s: SettingsDraft
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var shortcutHint = ""
 
     init(settings: Settings) {
-        self.settings = settings
+        _settings = ObservedObject(wrappedValue: settings)
         _s = State(initialValue: settings.draft)
     }
 

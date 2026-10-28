@@ -42,7 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Flipping the Shortcuts switch applies at once, if Focus should currently be on.
         settings.$shortcutsEnabled.dropFirst().removeDuplicates().sink { [weak self] on in
             guard let self, engine.phase != .rest, !engine.paused else { return }
-            integrations.setShortcutFocus(on: on)
+            integrations.setShortcutFocus(on: on) { [weak self] in
+                guard let self else { return false }
+                return settings.shortcutsEnabled && engine.phase != .rest && !engine.paused
+            }
+        }.store(in: &bag)
+        // Published values change in willSet; refresh on the next turn to read the new one.
+        detector.$detected.combineLatest(detector.$manual).dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshTitle() }
         }.store(in: &bag)
         detector.start()
         engine.isInMeeting = { [weak self] in self?.detector.isInMeeting ?? false }
@@ -104,9 +111,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .waiting: text = " meeting"
         default: text = engine.paused ? " paused" : " " + timeString(engine.remaining)
         }
-        button.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        ])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        let title = NSMutableAttributedString()
+        if detector.isInMeeting, let phone = NSImage(systemSymbolName: "phone.fill", accessibilityDescription: "In a call") {
+            phone.isTemplate = true
+            let attachment = NSTextAttachment()
+            attachment.image = phone
+            title.append(NSAttributedString(attachment: attachment))
+        }
+        title.append(NSAttributedString(string: text, attributes: [.font: font]))
+        button.attributedTitle = title
     }
 
     private func refreshIcon() {
@@ -149,7 +163,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let awake = menu.addItem(withTitle: "Keep awake", action: #selector(toggleKeepAwake), keyEquivalent: "")
         awake.target = self
         awake.state = keepAliveOn ? .on : .off
-        awake.isEnabled = settings.activeKeepAlive != nil
         add(menu, "I'm in a meeting", #selector(toggleManualMeeting), checked: detector.manual)
         if detector.detected {
             menu.addItem(withTitle: "Call detected (mic/camera in use)", action: nil, keyEquivalent: "").isEnabled = false
@@ -170,7 +183,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func togglePause() { engine.togglePause() }
     @objc private func restNow() { engine.startRest() }
     @objc private func restartFocus() { engine.startFocus() }
-    @objc private func toggleKeepAwake() { settings.keepAwake.toggle() }
+    @objc private func toggleKeepAwake() {
+        // Nothing enabled yet (fresh install): switch on the built-in caffeinate row.
+        if settings.activeKeepAlive == nil,
+           let i = settings.keepAliveItems.firstIndex(where: { $0.id == CommandItem.caffeinateID }) {
+            settings.keepAliveItems[i].enabled = true
+            settings.keepAwake = true
+        } else {
+            settings.keepAwake.toggle()
+        }
+    }
     @objc private func toggleManualMeeting() { detector.manual.toggle() }
 
     @objc private func openSettings() {

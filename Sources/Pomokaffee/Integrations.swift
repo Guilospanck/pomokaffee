@@ -29,7 +29,7 @@ final class Integrations {
         if settings.shortcutsEnabled { runShortcut(Self.shortcutNames[0]) }
         if settings.slackEnabled {
             slack("dnd.setSnooze", ["num_minutes": String(minutes)])
-            slack("users.profile.set", ["profile": #"{"status_text":"Focusing","status_emoji":":apple:"}"#])
+            slack("users.profile.set", ["profile": #"{"status_text":"Focusing","status_emoji":":dart:"}"#])
         }
     }
 
@@ -59,8 +59,17 @@ final class Integrations {
     }
 
     /// Runs just the Focus Shortcut, ignoring the enable switch. Used when that switch itself is flipped.
-    func setShortcutFocus(on: Bool) {
-        runShortcut(on ? Self.shortcutNames[0] : Self.shortcutNames[1])
+    /// Turning Focus on waits (up to 3 min) for the user to click Add Shortcut, then runs it if `stillWanted`.
+    func setShortcutFocus(on: Bool, stillWanted: @escaping () -> Bool) {
+        guard on else { runShortcut(Self.shortcutNames[1]); return }
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(180)
+            while Self.missingShortcuts().contains(Self.shortcutNames[0]) {
+                if Date() > deadline { Log.write("gave up waiting for '\(Self.shortcutNames[0])' to be added"); return }
+                Thread.sleep(forTimeInterval: 1)
+            }
+            DispatchQueue.main.async { if stillWanted() { self.runShortcut(Self.shortcutNames[0]) } }
+        }
     }
 
     // MARK: Rest
