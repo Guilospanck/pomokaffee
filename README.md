@@ -1,4 +1,6 @@
-# Pomokaffee
+<p align="center"><img src="assets/icon.png" alt="Pomokaffee icon" width="128" height="128"></p>
+
+<h1 align="center">Pomokaffee</h1>
 
 Menu bar pomodoro for macOS. Apple icon with coffee steam; calm while you focus.
 
